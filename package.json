@@ -1,9 +1,14 @@
 {
   "name": "dicetro",
   "private": true,
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
-    "test": "npm test -w @dicetro/engine",
-    "typecheck": "npm run typecheck -w @dicetro/engine"
+    "dev": "npm run dev -w @dicetro/web",
+    "build": "npm run build -w @dicetro/web",
+    "test": "npm test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
   }
 }
