@@ -1,3 +1,5 @@
+import { isEven, isOdd, isStone, type Face } from './dice';
+
 // Precedence order, best first (design doc §5.1).
 export const COMBOS = [
   'fiveKind', 'fourKind', 'parityHouse', 'fullHouse', 'largeStraight',
@@ -25,18 +27,33 @@ export const BASE: Record<Combo, { chips: number; mult: number; lvlChips: number
   highDie: { chips: 5, mult: 1, lvlChips: 10, lvlMult: 1 },
 };
 
+/** Rule changes from Jokers (`modifyRules`). */
+export type Rules = { shortLadder: boolean };
+export const DEFAULT_RULES: Rules = { shortLadder: false };
+
 export type Detected = { combo: Combo; scored: number[] };
 
-/** Best combo inside a selection of 1-5 face values. `scored` = indices into `values`; ties pick the leftmost die. */
-export function detect(values: number[]): Detected {
-  if (values.length < 1 || values.length > 5) throw new Error('select 1-5 dice');
+/**
+ * Best combo inside a selection of 1-5 faces. `scored` = indices into `faces`.
+ * Stone faces never form combos but always score; ties pick the leftmost die.
+ */
+export function detect(faces: Face[], rules: Rules = DEFAULT_RULES): Detected {
+  if (faces.length < 1 || faces.length > 5) throw new Error('select 1-5 dice');
+  const stones = faces.flatMap((f, i) => (isStone(f) ? [i] : []));
+  const live = faces.flatMap((f, i) => (isStone(f) ? [] : [i]));
+  if (!live.length) return { combo: 'highDie', scored: stones };
+  const r = detectLive(live.map((i) => faces[i]), rules);
+  return { combo: r.combo, scored: [...r.scored.map((j) => live[j]), ...stones] };
+}
+
+function detectLive(faces: Face[], rules: Rules): Detected {
+  const values = faces.map((f) => f.value);
   const byValue = new Map<number, number[]>();
   values.forEach((v, i) => byValue.set(v, [...(byValue.get(v) ?? []), i]));
   // Groups of equal values: biggest group first, then highest value.
   const g = [...byValue.entries()].sort((a, b) => b[1].length - a[1].length || b[0] - a[0]).map(([, idx]) => idx);
   const all = values.map((_, i) => i);
-  const five = values.length === 5;
-  const sameParity = five && values.every((v) => v % 2 === values[0] % 2);
+  const need = rules.shortLadder ? 4 : 5; // dice needed for Large Straight and Parity
   const run = (len: number): number[] | null => {
     for (let lo = 10; lo >= 1; lo--) { // highest run first; faces are capped at 10
       const idx: number[] = [];
@@ -45,18 +62,27 @@ export function detect(values: number[]): Detected {
     }
     return null;
   };
+  const parityGroup = (): number[] | null => {
+    for (const test of [isOdd, isEven]) {
+      const m = faces.flatMap((f, i) => (test(f) ? [i] : []));
+      if (m.length >= need) return m;
+    }
+    return null;
+  };
+  const allSameParity = faces.length === 5 && (faces.every(isOdd) || faces.every(isEven));
 
   const top = g[0].length;
   const second = g[1]?.length ?? 0;
   if (top === 5) return { combo: 'fiveKind', scored: all };
   if (top === 4) return { combo: 'fourKind', scored: g[0] };
-  if (top === 3 && second === 2) return { combo: sameParity ? 'parityHouse' : 'fullHouse', scored: all };
-  const large = five ? run(5) : null;
+  if (top === 3 && second === 2) return { combo: allSameParity ? 'parityHouse' : 'fullHouse', scored: all };
+  const large = values.length >= need ? run(need) : null;
   if (large) return { combo: 'largeStraight', scored: large };
   if (top === 3) return { combo: 'threeKind', scored: g[0] };
   const small = run(4);
   if (small) return { combo: 'smallStraight', scored: small };
-  if (sameParity) return { combo: 'parity', scored: all };
+  const pg = parityGroup();
+  if (pg) return { combo: 'parity', scored: pg };
   if (top === 2 && second === 2) return { combo: 'twoPair', scored: [...g[0], ...g[1]] };
   if (top === 2) return { combo: 'pair', scored: g[0] };
   return { combo: 'highDie', scored: [g[0][0]] };

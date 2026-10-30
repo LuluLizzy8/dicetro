@@ -1,12 +1,20 @@
 import { REWARD, target, type BlindKind } from './blinds';
-import { makeD10, type Die } from './dice';
+import { COMBOS, type Combo } from './combos';
+import { consumableInfo, useConsumable, type Consumable, type Target } from './consumables';
+import { makeD10, shownFace, type Die } from './dice';
+import { InvalidAction } from './errors';
+import { joker, type JokerId, type JokerInst } from './jokers';
 import { int, makeRng, type Rng } from './rng';
 import { scoreHand, startLevels, type Levels, type ScoreResult } from './scoring';
+
+export { InvalidAction } from './errors';
 
 export const HANDS = 4;
 export const REROLLS = 10;
 export const WIN_ANTE = 8;
 export const START_MONEY = 4;
+export const JOKER_SLOTS = 5;
+export const CONSUMABLE_SLOTS = 2;
 const DICE = 5;
 
 export type Phase = 'rolling' | 'cleared' | 'won' | 'lost';
@@ -25,45 +33,78 @@ export type RunState = {
   endless: boolean;
   dice: Die[];
   shown: string[]; // face id showing on each die
+  lastPlayed: number[]; // dice selected on the most recent hand (Gold needs the closing hand)
   levels: Levels;
-  rng: { dice: Rng };
+  comboCounts: Record<Combo, number>;
+  jokers: JokerInst[];
+  consumables: Consumable[];
+  uid: number; // counter for new ids (jokers, mirrored faces)
+  rng: { dice: Rng; lucky: Rng; glass: Rng; joker: Rng; tarot: Rng };
 };
 
 export type Action =
   | { t: 'reroll'; keep: number[] } // die indices to lock; the rest are rerolled
   | { t: 'score'; dice: number[] } // die indices to play
   | { t: 'next' }
-  | { t: 'endless' };
+  | { t: 'endless' }
+  | { t: 'use'; slot: number; target?: Target }
+  | { t: 'sell'; what: 'joker' | 'consumable'; index: number }
+  | { t: 'moveJoker'; from: number; to: number };
 
 export type Event =
   | { t: 'blindStart'; ante: number; blind: BlindKind; target: number }
   | { t: 'rolled'; values: number[] }
   | ({ t: 'scored'; dice: number[] } & ScoreResult)
-  | { t: 'cashOut'; reward: number; handBonus: number; interest: number }
+  | { t: 'cashOut'; reward: number; handBonus: number; interest: number; extra: number }
+  | { t: 'jokerDestroyed'; id: JokerId }
+  | { t: 'used'; name: string }
+  | { t: 'sold'; name: string; money: number }
   | { t: 'lost' }
   | { t: 'won' };
 
-export class InvalidAction extends Error {}
-
 export function values(s: RunState): number[] {
-  return s.dice.map((d, i) => d.faces.find((f) => f.id === s.shown[i])!.value);
+  return s.dice.map((_, i) => shownFace(s, i).value);
 }
 
 export function newRun(seed: string): RunState {
+  const stream = (name: string) => makeRng(seed, name);
   const s: RunState = {
     seed, phase: 'rolling', ante: 1, blind: 'small', target: target(1, 'small'), score: 0,
     handsLeft: HANDS, rerollsLeft: REROLLS, money: START_MONEY, endless: false,
     dice: Array.from({ length: DICE }, (_, i) => makeD10(`d${i}`)),
-    shown: [], levels: startLevels(), rng: { dice: makeRng(seed, 'dice') },
+    shown: [], lastPlayed: [], levels: startLevels(),
+    comboCounts: Object.fromEntries(COMBOS.map((c) => [c, 0])) as Record<Combo, number>,
+    jokers: [], consumables: [], uid: 0,
+    rng: { dice: stream('dice'), lucky: stream('lucky'), glass: stream('glass'), joker: stream('joker'), tarot: stream('tarot') },
   };
   roll(s, []);
   return s;
 }
 
+/** Adds a Joker if a slot is free (shop, packs, dev tools). Mutates `s`. */
+export function addJoker(s: RunState, id: JokerId): boolean {
+  if (s.jokers.length >= JOKER_SLOTS) return false;
+  s.jokers.push({ id, uid: `j${s.uid++}`, state: { n: 0 } });
+  return true;
+}
+
+export function addConsumable(s: RunState, c: Consumable): boolean {
+  if (s.consumables.length >= CONSUMABLE_SLOTS) return false;
+  s.consumables.push(c);
+  return true;
+}
+
+export const sellValue = (cost: number) => Math.max(1, Math.floor(cost / 2));
+
 export function legalActions(s: RunState): Action['t'][] {
+  const manage: Action['t'][] = [
+    ...(s.consumables.length ? ['use' as const] : []),
+    ...(s.jokers.length || s.consumables.length ? ['sell' as const] : []),
+    ...(s.jokers.length > 1 ? ['moveJoker' as const] : []),
+  ];
   switch (s.phase) {
-    case 'rolling': return s.rerollsLeft > 0 ? ['reroll', 'score'] : ['score'];
-    case 'cleared': return ['next'];
+    case 'rolling': return [...(s.rerollsLeft > 0 ? ['reroll' as const] : []), 'score', ...manage];
+    case 'cleared': return ['next', ...manage];
     case 'won': return ['endless'];
     case 'lost': return [];
   }
@@ -77,6 +118,7 @@ export function apply(state: RunState, action: Action): { state: RunState; event
     case 'reroll': {
       if (!validDice(action.keep) || action.keep.length === DICE) throw new InvalidAction('keep must be 0-4 distinct die indices');
       s.rerollsLeft--;
+      for (const j of s.jokers) joker(j.id).onReroll?.(j);
       roll(s, action.keep);
       events.push({ t: 'rolled', values: values(s) });
       break;
@@ -84,15 +126,11 @@ export function apply(state: RunState, action: Action): { state: RunState; event
     case 'score': {
       if (!validDice(action.dice) || action.dice.length === 0) throw new InvalidAction('select 1-5 distinct die indices');
       const sel = [...action.dice].sort((a, b) => a - b);
-      const v = values(s);
-      const r = scoreHand(sel.map((i) => v[i]), s.levels);
+      const r = scoreHand(s, sel);
       s.score += r.total;
       s.handsLeft--;
-      events.push({
-        t: 'scored', dice: sel, ...r,
-        scored: r.scored.map((j) => sel[j]),
-        steps: r.steps.map((st) => (st.t === 'die' ? { ...st, index: sel[st.index] } : st)),
-      });
+      s.lastPlayed = sel;
+      events.push({ t: 'scored', dice: sel, ...r });
       if (s.score >= s.target) cashOut(s, events);
       else if (s.handsLeft === 0) { s.phase = 'lost'; events.push({ t: 'lost' }); }
       else { roll(s, []); events.push({ t: 'rolled', values: values(s) }); }
@@ -107,12 +145,37 @@ export function apply(state: RunState, action: Action): { state: RunState; event
       advance(s);
       startBlind(s, events);
       break;
+    case 'use': {
+      const c = s.consumables[action.slot];
+      if (!c) throw new InvalidAction('no consumable in that slot');
+      useConsumable(s, action.slot, action.target);
+      events.push({ t: 'used', name: consumableInfo(c).name });
+      break;
+    }
+    case 'sell': {
+      const list = action.what === 'joker' ? s.jokers : s.consumables;
+      const item = list[action.index];
+      if (!item) throw new InvalidAction(`no ${action.what} at ${action.index}`);
+      const info = 'kind' in item ? consumableInfo(item) : joker(item.id);
+      list.splice(action.index, 1);
+      const money = sellValue(info.cost);
+      s.money += money;
+      events.push({ t: 'sold', name: info.name, money });
+      break;
+    }
+    case 'moveJoker': {
+      const { from, to } = action;
+      const ok = (i: number) => Number.isInteger(i) && i >= 0 && i < s.jokers.length;
+      if (!ok(from) || !ok(to)) throw new InvalidAction('joker index out of range');
+      s.jokers.splice(to, 0, ...s.jokers.splice(from, 1));
+      break;
+    }
   }
   return { state: s, events };
 }
 
 function validDice(xs: number[]): boolean {
-  return xs.every((i) => Number.isInteger(i) && i >= 0 && i < DICE) && new Set(xs).size === xs.length;
+  return Array.isArray(xs) && xs.every((i) => Number.isInteger(i) && i >= 0 && i < DICE) && new Set(xs).size === xs.length;
 }
 
 function roll(s: RunState, keep: number[]) {
@@ -122,7 +185,7 @@ function roll(s: RunState, keep: number[]) {
 }
 
 function startBlind(s: RunState, events: Event[]) {
-  Object.assign(s, { phase: 'rolling', target: target(s.ante, s.blind), score: 0, handsLeft: HANDS, rerollsLeft: REROLLS });
+  Object.assign(s, { phase: 'rolling', target: target(s.ante, s.blind), score: 0, handsLeft: HANDS, rerollsLeft: REROLLS, lastPlayed: [] });
   events.push({ t: 'blindStart', ante: s.ante, blind: s.blind, target: s.target });
   roll(s, []);
   events.push({ t: 'rolled', values: values(s) });
@@ -132,8 +195,20 @@ function cashOut(s: RunState, events: Event[]) {
   const reward = REWARD[s.blind];
   const handBonus = s.handsLeft;
   const interest = Math.min(5, Math.floor(s.money / 5)); // on money held before payout
-  s.money += reward + handBonus + interest;
-  events.push({ t: 'cashOut', reward, handBonus, interest });
+  let extra = 0;
+  s.dice.forEach((_, i) => {
+    if (!s.lastPlayed.includes(i) && shownFace(s, i).sticker === 'gold') extra += 3;
+  });
+  for (const j of [...s.jokers]) {
+    const r = joker(j.id).onRoundEnd?.(j, s);
+    extra += r?.money ?? 0;
+    if (r?.destroy) {
+      s.jokers = s.jokers.filter((x) => x.uid !== j.uid);
+      events.push({ t: 'jokerDestroyed', id: j.id });
+    }
+  }
+  s.money += reward + handBonus + interest + extra;
+  events.push({ t: 'cashOut', reward, handBonus, interest, extra });
   if (s.blind === 'boss' && s.ante === WIN_ANTE && !s.endless) {
     s.phase = 'won';
     events.push({ t: 'won' });
