@@ -1,0 +1,9 @@
+{
+  "name": "dicetro",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "test": "npm test -w @dicetro/engine",
+    "typecheck": "npm run typecheck -w @dicetro/engine"
+  }
+}
