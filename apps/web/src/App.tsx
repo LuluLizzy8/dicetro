@@ -8,6 +8,7 @@ import { ConsumableRow, JokerRow } from './Cards';
 import { Die } from './Die';
 import { Inspector } from './Inspector';
 import { PackView, ShopView } from './Shop';
+import { loadRun, saveRun } from './storage';
 
 type CashOut = Extract<Event, { t: 'cashOut' }>;
 type Tally = { label: string; level: number; chips: number; mult: number; total?: number };
@@ -34,7 +35,7 @@ const fmt = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 1 
 const anyOf = <T,>(xs: readonly T[]) => xs[Math.floor(Math.random() * xs.length)]; // dev panel only
 
 export function App() {
-  const [run, setRun] = useState<RunState>(() => newRun(newSeed()));
+  const [run, setRun] = useState<RunState>(() => loadRun() ?? newRun(newSeed()));
   const [selected, setSelected] = useState<number[]>([]);
   const [rollIds, setRollIds] = useState(ALL.map(() => 0)); // bump a die's id to replay its tumble
   const [busy, setBusy] = useState(false);
@@ -47,6 +48,8 @@ export function App() {
   const [targetFaces, setTargetFaces] = useState<string[]>([]);
   const [pickedOption, setPickedOption] = useState<number | null>(null); // open pack option
   const [toast, setToast] = useState<string | null>(null);
+
+  useEffect(() => saveRun(run.phase === 'lost' ? null : run), [run]);
 
   useEffect(() => {
     if (!toast) return;
