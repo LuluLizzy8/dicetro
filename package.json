@@ -9,6 +9,7 @@
     "dev": "npm run dev -w @dicetro/web",
     "build": "npm run build -w @dicetro/web",
     "test": "npm test --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "sim": "npm run sim -w @dicetro/sim --"
   }
 }
