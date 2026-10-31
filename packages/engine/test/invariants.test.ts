@@ -17,8 +17,8 @@ it('random legal play keeps invariants and ends in a loss', () => {
     let s = newRun(String(seed));
     let steps = 0;
     while (legalActions(s).length && steps < 2000) {
-      const kinds = legalActions(s).filter((k): k is 'reroll' | 'score' | 'next' | 'endless' =>
-        ['reroll', 'score', 'next', 'endless'].includes(k));
+      const kinds = legalActions(s).filter((k): k is 'reroll' | 'score' | 'next' | 'endless' | 'skipPack' =>
+        ['reroll', 'score', 'next', 'endless', 'skipPack'].includes(k));
       const t = kinds[int(r, kinds.length)];
       const pick = () => [0, 1, 2, 3, 4].filter(() => int(r, 2) === 1);
       let a: Action;

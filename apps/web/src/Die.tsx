@@ -5,23 +5,25 @@ type Props = {
   face: Face;
   selected: boolean;
   lit: boolean;
+  rusted: boolean; // Rusted Lock: never rerolls this blind
+  debuffed: boolean; // boss debuff: scores nothing
   rollId: number;
   disabled: boolean;
   onToggle: () => void;
 };
 
 // A d10 seen face-on: pentagonal-trapezohedron silhouette with the kite face toward the player.
-export function Die({ index, face, selected, lit, rollId, disabled, onToggle }: Props) {
+export function Die({ index, face, selected, lit, rusted, debuffed, rollId, disabled, onToggle }: Props) {
   const { value, sticker } = face;
   const stone = sticker === 'stone';
   const underline = !stone && (value === 6 || value === 9); // real dice mark 6/9 so they can't be misread
   return (
     <button
-      className={`die${selected ? ' sel' : ''}${lit ? ' lit' : ''}${sticker ? ` st-${sticker}` : ''}`}
+      className={`die${selected ? ' sel' : ''}${lit ? ' lit' : ''}${sticker ? ` st-${sticker}` : ''}${rusted ? ' rusted' : ''}${debuffed ? ' debuffed' : ''}`}
       onClick={onToggle}
       disabled={disabled}
       aria-pressed={selected}
-      aria-label={`Die ${index + 1}, showing ${stone ? 'stone' : value}${sticker && !stone ? `, ${sticker}` : ''}${selected ? ', selected' : ''}`}
+      aria-label={`Die ${index + 1}, showing ${stone ? 'stone' : value}${sticker && !stone ? `, ${sticker}` : ''}${rusted ? ', rusted' : ''}${debuffed ? ', debuffed' : ''}${selected ? ', selected' : ''}`}
       title={sticker ? `${sticker}: ${STICKER_TEXT[sticker]}` : undefined}
     >
       <span key={rollId} className="die-body" style={{ animationDelay: `${index * 55}ms` }}>
@@ -34,6 +36,7 @@ export function Die({ index, face, selected, lit, rollId, disabled, onToggle }: 
           {sticker && <text x="50" y="92" className="die-tag">{sticker.toUpperCase()}</text>}
         </svg>
       </span>
+      {rusted && <span className="die-badge" aria-hidden="true">🔒</span>}
       <kbd>{index + 1}</kbd>
     </button>
   );

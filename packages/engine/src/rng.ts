@@ -26,3 +26,17 @@ export function next(r: Rng): number {
 export function int(r: Rng, n: number): number {
   return Math.floor(next(r) * n);
 }
+
+export function pick<T>(r: Rng, xs: readonly T[]): T {
+  return xs[int(r, xs.length)];
+}
+
+/** n distinct elements (partial Fisher-Yates). */
+export function sample<T>(r: Rng, xs: readonly T[], n: number): T[] {
+  const a = [...xs];
+  for (let i = 0; i < Math.min(n, a.length); i++) {
+    const j = i + int(r, a.length - i);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a.slice(0, n);
+}

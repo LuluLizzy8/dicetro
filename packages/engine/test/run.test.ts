@@ -81,18 +81,21 @@ describe('blind flow', () => {
     expect(r.state.score).toBe(1500);
     expect(r.state.phase).toBe('cleared');
     expect(r.state.money).toBe(4 + 3 + 3 + 0); // start + reward + 3 unused hands + interest
-    const n = apply(r.state, { t: 'next' }).state;
-    expect(n).toMatchObject({ phase: 'rolling', ante: 1, blind: 'big', target: 400, score: 0, handsLeft: 4, rerollsLeft: 10 });
+    const shop = apply(r.state, { t: 'next' }).state;
+    expect(shop.phase).toBe('shop');
+    const n = apply(shop, { t: 'next' }).state;
+    expect(n).toMatchObject({ phase: 'rolling', ante: 1, blind: 'big', target: 400, score: 0, handsLeft: 4, rerollsLeft: 10, shop: null });
   });
 
   it('wins at the ante 8 boss and continues into endless', () => {
     const s = newRun('abc');
-    Object.assign(s, { ante: 8, blind: 'boss', target: 1 });
+    Object.assign(s, { ante: 8, blind: 'boss', boss: 'velvetRope', target: 1 });
     const won = apply(s, { t: 'score', dice: [0] }).state;
     expect(won.phase).toBe('won');
     expect(legalActions(won)).toEqual(['endless']);
-    const e = apply(won, { t: 'endless' }).state;
-    expect(e).toMatchObject({ phase: 'rolling', ante: 9, blind: 'small', endless: true });
+    const shop = apply(won, { t: 'endless' }).state;
+    expect(shop).toMatchObject({ phase: 'shop', endless: true });
+    expect(apply(shop, { t: 'next' }).state).toMatchObject({ phase: 'rolling', ante: 9, blind: 'small' });
   });
 
   it('rejects actions from the wrong phase', () => {

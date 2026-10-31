@@ -1,3 +1,4 @@
+import { activeBoss, isDebuffed } from './bosses';
 import { BASE, COMBOS, DEFAULT_RULES, detect, type Combo, type Rules } from './combos';
 import { shownFace, type Face } from './dice';
 import { joker, type Ctx, type Fx } from './jokers';
@@ -43,6 +44,10 @@ export function scoreHand(s: RunState, sel: number[]): ScoreResult {
   for (const j of s.jokers) joker(j.id).onScoreStart?.(j, ctx);
 
   let { chips, mult } = comboBase(combo, s.levels[combo]);
+  if (activeBoss(s) === 'flint') {
+    chips = Math.max(1, Math.floor(chips / 2));
+    mult = Math.max(1, Math.floor(mult / 2));
+  }
   const steps: ScoreStep[] = [{ t: 'base', combo, chips, mult }];
   const add = (src: string, fx: Fx | null | undefined, die?: number) => {
     if (!fx) return;
@@ -55,6 +60,10 @@ export function scoreHand(s: RunState, sel: number[]): ScoreResult {
 
   const shattered: [number, Face][] = [];
   for (const i of scored) {
+    if (isDebuffed(s, i)) {
+      steps.push({ t: 'fx', src: 'debuffed', die: i });
+      continue;
+    }
     const f = shownFace(s, i);
     const times = 1 + s.jokers.reduce((n, j) => n + (joker(j.id).retrigger?.(j, ctx, f) ?? 0), 0);
     for (let k = 0; k < times; k++) {
@@ -73,7 +82,7 @@ export function scoreHand(s: RunState, sel: number[]): ScoreResult {
 
   // Unscored = dice the player did not select (the "held in hand" analog).
   s.dice.forEach((_, i) => {
-    if (!sel.includes(i) && shownFace(s, i).sticker === 'steel') add('steel', { xmult: 1.5 }, i);
+    if (!sel.includes(i) && !isDebuffed(s, i) && shownFace(s, i).sticker === 'steel') add('steel', { xmult: 1.5 }, i);
   });
 
   for (const j of s.jokers) add(`joker:${j.uid}`, joker(j.id).onJoker?.(j, ctx));

@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import {
-  addConsumable, addJoker, apply, COMBO_NAMES, COMBOS, comboBase, consumableInfo, HANDS, InvalidAction, joker,
-  JOKER_IDS, newRun, previewCombo, REROLLS, REWARD, shownFace, TAROT_IDS, WIN_ANTE,
+  addConsumable, addJoker, apply, boss, COMBO_NAMES, COMBOS, comboBase, consumableInfo, HANDS, InvalidAction, isDebuffed,
+  joker, JOKER_IDS, newRun, previewCombo, REROLLS, REWARD, shownFace, tarot, TAROT_IDS, WIN_ANTE,
   type Action, type Event, type RunState, type TargetKind,
 } from '@dicetro/engine';
 import { ConsumableRow, JokerRow } from './Cards';
 import { Die } from './Die';
 import { Inspector } from './Inspector';
+import { PackView, ShopView } from './Shop';
 
 type CashOut = Extract<Event, { t: 'cashOut' }>;
 type Tally = { label: string; level: number; chips: number; mult: number; total?: number };
@@ -44,6 +45,7 @@ export function App() {
   const [pickedJoker, setPickedJoker] = useState<number | null>(null);
   const [pickedCons, setPickedCons] = useState<number | null>(null);
   const [targetFaces, setTargetFaces] = useState<string[]>([]);
+  const [pickedOption, setPickedOption] = useState<number | null>(null); // open pack option
   const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
@@ -54,11 +56,15 @@ export function App() {
 
   const faces = ALL.map((i) => shownFace(run, i));
   const rolling = run.phase === 'rolling' && !busy;
-  const managing = (run.phase === 'rolling' || run.phase === 'cleared') && !busy;
+  const managing = (run.phase === 'rolling' || run.phase === 'cleared' || run.phase === 'shop') && !busy;
   const cons = pickedCons === null ? null : run.consumables[pickedCons];
   const consInfo = cons ? consumableInfo(cons) : null;
-  const [minT, maxT] = consInfo ? NEED[consInfo.target] : [0, 0];
-  const targeting = !!consInfo && maxT > 0;
+  const packOpt = run.phase === 'pack' && pickedOption !== null ? run.pack!.options[pickedOption] : null;
+  // Faces to pick, for a held Tarot or a Tarot chosen from an open pack.
+  const targetKind: TargetKind | null = consInfo?.target ?? (packOpt?.kind === 'tarot' ? tarot(packOpt.id).target : null);
+  const [minT, maxT] = targetKind ? NEED[targetKind] : [0, 0];
+  const targeting = maxT > 0;
+  const bossDef = boss(run.boss);
 
   // Balatro-style preview of the selection: combo name, level, base chips x mult.
   const previewed = selected.length && !tally ? previewCombo(run, selected) : null;
@@ -67,7 +73,7 @@ export function App() {
 
   const bump = (idx: number[]) => setRollIds((ids) => ids.map((n, i) => (idx.includes(i) ? n + 1 : n)));
   const toggle = (i: number) => rolling && setSelected((s) => (s.includes(i) ? s.filter((x) => x !== i) : [...s, i]));
-  const clearPicks = () => { setPickedJoker(null); setPickedCons(null); setTargetFaces([]); };
+  const clearPicks = () => { setPickedJoker(null); setPickedCons(null); setPickedOption(null); setTargetFaces([]); };
 
   /** Applies a management action; shows the engine's reason if it refuses. */
   function act(action: Action) {
@@ -121,16 +127,14 @@ export function App() {
 
   function reroll() {
     if (!rolling || !selected.length || run.rerollsLeft === 0) return;
-    const { state } = apply(run, { t: 'reroll', keep: ALL.filter((i) => !selected.includes(i)) });
-    setRun(state);
-    bump(selected);
+    act({ t: 'reroll', keep: ALL.filter((i) => !selected.includes(i)) });
     setSelected([]);
   }
 
   function advance(t: 'next' | 'endless') {
-    setRun(apply(run, { t }).state);
+    act({ t });
     setCash(null);
-    bump(ALL);
+    if (run.phase === 'shop') bump(ALL);
   }
 
   function restart() {
@@ -178,6 +182,9 @@ export function App() {
           <div className="blind-label">Score at least</div>
           <div className="blind-target">{fmt(run.target)}</div>
           <div className="blind-reward">Reward <b>{'$'.repeat(REWARD[run.blind])}</b></div>
+          {run.blind === 'boss'
+            ? <div className="boss-now"><b>{bossDef.name}</b>{bossDef.text}</div>
+            : <div className="boss-next">Boss: <b>{bossDef.name}</b> · {bossDef.text}</div>}
         </section>
 
         <section className="round">
@@ -248,33 +255,60 @@ export function App() {
           </div>
         )}
 
-        <div className="tray">
-          {faces.map((f, i) => (
-            <Die
-              key={i}
-              index={i}
-              face={f}
-              selected={selected.includes(i)}
-              lit={lit === i}
-              rollId={rollIds[i]}
-              disabled={!rolling}
-              onToggle={() => toggle(i)}
-            />
-          ))}
-        </div>
+        {run.phase === 'shop' && (
+          <ShopView
+            run={run}
+            onBuy={(what, slot) => act({ t: 'buy', what, slot })}
+            onReroll={() => act({ t: 'rerollShop' })}
+            onLeave={() => advance('next')}
+          />
+        )}
+        {run.phase === 'pack' && run.pack && (
+          <PackView
+            pack={run.pack}
+            run={run}
+            picked={pickedOption}
+            hint={targeting && targetKind ? TARGET_HINT[targetKind] : null}
+            canUse={targetFaces.length >= minT}
+            onPick={(i) => { setPickedOption(i); setTargetFaces([]); }}
+            onTake={(replace) => act({ t: 'pick', index: pickedOption!, replace, target: { faces: targetFaces } })}
+            onSkip={() => act({ t: 'skipPack' })}
+          />
+        )}
 
-        <div className="actions">
-          <button className="btn play" onClick={play} disabled={!rolling || !selected.length}>
-            Play <small>Enter</small>
-          </button>
-          <button className="btn reroll" onClick={reroll} disabled={!rolling || !selected.length || run.rerollsLeft === 0}>
-            Reroll <small>R</small>
-          </button>
-        </div>
-        <p className="hint">
-          Tap dice (or keys 1–5) to select. <b>Play</b> scores the selection. <b>Reroll</b> rerolls it.
-          {' '}{HANDS} hands and {REROLLS} rerolls per blind.
-        </p>
+        {run.phase !== 'shop' && run.phase !== 'pack' && (
+          <>
+            <div className="tray">
+              {faces.map((f, i) => (
+                <Die
+                  key={i}
+                  index={i}
+                  face={f}
+                  selected={selected.includes(i)}
+                  lit={lit === i}
+                  rusted={run.locked.includes(i)}
+                  debuffed={run.phase === 'rolling' && isDebuffed(run, i)}
+                  rollId={rollIds[i]}
+                  disabled={!rolling}
+                  onToggle={() => toggle(i)}
+                />
+              ))}
+            </div>
+
+            <div className="actions">
+              <button className="btn play" onClick={play} disabled={!rolling || !selected.length}>
+                Play <small>Enter</small>
+              </button>
+              <button className="btn reroll" onClick={reroll} disabled={!rolling || !selected.length || run.rerollsLeft === 0}>
+                Reroll <small>R</small>
+              </button>
+            </div>
+            <p className="hint">
+              Tap dice (or keys 1–5) to select. <b>Play</b> scores the selection. <b>Reroll</b> rerolls it.
+              {' '}{HANDS} hands and {REROLLS} rerolls per blind.
+            </p>
+          </>
+        )}
 
         <Inspector dice={run.dice} shown={run.shown} targeting={targeting} picked={targetFaces} onPick={pickFace} />
       </main>
@@ -304,10 +338,11 @@ export function App() {
           <button onClick={() => devGive((s) => addConsumable(s, { kind: 'tarot', id: anyOf(TAROT_IDS) }))}>+Tarot</button>
           <button onClick={() => devGive((s) => addConsumable(s, { kind: 'weight', combo: anyOf(COMBOS) }))}>+Weight</button>
           <button onClick={() => devGive((s) => { s.money += 10; })}>+$10</button>
+          <button onClick={() => devGive((s) => { s.score = Math.max(s.score, s.target - 1); })}>Almost win</button>
         </div>
       )}
 
-      {run.phase !== 'rolling' && !busy && (
+      {(run.phase === 'cleared' || run.phase === 'won' || run.phase === 'lost') && !busy && (
         <div className="overlay" role="dialog" aria-modal="true">
           {run.phase === 'cleared' && (
             <div className="card">
@@ -320,7 +355,7 @@ export function App() {
                   {cash.extra > 0 && <li><span>Gold &amp; Jokers</span><b>${cash.extra}</b></li>}
                 </ul>
               )}
-              <button className="btn play" onClick={() => advance('next')} autoFocus>Next blind</button>
+              <button className="btn play" onClick={() => advance('next')} autoFocus>Go to shop</button>
             </div>
           )}
           {run.phase === 'won' && (
