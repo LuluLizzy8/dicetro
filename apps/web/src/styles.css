@@ -27,7 +27,7 @@ body {
   background:
     radial-gradient(ellipse 70% 60% at 58% 42%, var(--felt-hi) 0%, var(--felt) 45%, var(--felt-deep) 100%);
   background-color: var(--felt-deep);
-  overflow-x: hidden;
+  overflow: hidden;
 }
 /* felt grain */
 body::before {
@@ -45,9 +45,12 @@ button:focus-visible { outline: 2px solid var(--brass); outline-offset: 3px; }
 .table {
   position: relative;
   display: grid;
-  grid-template-columns: 300px 1fr 280px;
-  min-height: 100%;
+  grid-template-columns: 300px minmax(0, 1fr) 300px;
+  height: 100vh;
+  height: 100dvh;
 }
+/* page never scrolls; a panel scrolls itself only if the window is too small */
+.rail, .felt, .combos { min-height: 0; overflow-y: auto; overflow-x: hidden; }
 
 /* ---------- left rail ---------- */
 .rail {
@@ -437,11 +440,9 @@ button:focus-visible { outline: 2px solid var(--brass); outline-offset: 3px; }
 /* ---------- inspector ---------- */
 .inspector {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 10px;
-  width: 100%;
-  max-width: 760px;
-  padding: 12px;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 8px;
   border-radius: 10px;
   background: rgba(0, 0, 0, 0.22);
   border: 1px solid rgba(255, 255, 255, 0.05);
@@ -450,10 +451,10 @@ button:focus-visible { outline: 2px solid var(--brass); outline-offset: 3px; }
 .inspector.targeting { background: rgba(42, 29, 69, 0.55); box-shadow: 0 0 0 2px #8f6fd1; }
 .ins-head { font-size: 9px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
 .ins-head span { float: right; color: var(--text); }
-.ins-faces { display: flex; flex-wrap: wrap; gap: 4px; }
+.ins-head { margin-bottom: 3px; }
+.ins-faces { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 3px; }
 .chip {
-  width: 24px;
-  height: 24px;
+  height: 22px;
   padding: 0;
   border: 0;
   border-radius: 5px;
@@ -530,8 +531,6 @@ button:focus-visible { outline: 2px solid var(--brass); outline-offset: 3px; }
   .jcard span { display: none; }
   .ccard { width: 62px; height: 92px; padding: 6px 5px; }
   .ccard span { display: none; }
-  .inspector { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; padding: 8px; }
-  .chip { width: 20px; height: 20px; font-size: 10px; }
   .use-bar { flex-wrap: wrap; }
   .card-menu { flex-wrap: wrap; justify-content: center; width: 180px; }
   .card-menu .card-text {
@@ -652,4 +651,56 @@ button:focus-visible { outline: 2px solid var(--brass); outline-offset: 3px; }
   .static span { display: block; font-size: 8px; }
   .ware.sold { width: 92px; height: 160px; }
   .option { width: 100%; }
+}
+
+/* ---------- fit the window: short desktop windows ---------- */
+.sheet-btn { display: none; }
+@media (min-width: 961px) and (max-height: 760px) {
+  .rail { gap: 8px; padding: 14px 18px; }
+  .brand { font-size: 30px; }
+  .blind { padding: 10px 12px 8px; }
+  .blind-target { font-size: 26px; }
+  .round-score { font-size: 24px; }
+  .tally { padding: 8px; }
+  .chips, .mult { font-size: 24px; }
+  .tally-row { margin-top: 4px; }
+  .tally-total { min-height: 28px; margin-top: 4px; font-size: 22px; }
+  .counters { margin-top: 0; }
+  .counter b { font-size: 20px; }
+  .felt { gap: 12px; padding-top: 12px; padding-bottom: 12px; }
+  .shelf header { margin-bottom: 6px; }
+  .jcard, .ccard { height: 104px; }
+  .tray { padding: 30px clamp(14px, 3vw, 40px) 18px; }
+  .die { width: clamp(52px, min(9vw, 14vh), 112px); }
+  .btn { padding: 10px 18px 8px; }
+  .combos { padding: 14px 18px; }
+  .combos li { padding: 3px 6px; }
+}
+
+/* ---------- fit the window: phones ---------- */
+@media (max-width: 960px) {
+  .table { grid-template-rows: auto minmax(0, 1fr) auto; }
+  .rail { gap: 6px 10px; padding: 8px 12px; }
+  .brand { display: none; }
+  .blind { padding: 6px 10px; }
+  .blind-name { font-size: 15px; }
+  .blind-target { font-size: 22px; }
+  .boss-now, .boss-next { font-size: 9px; }
+  .round-score { font-size: 22px; }
+  .tally { padding: 6px; }
+  .tally-name { font-size: 14px; min-height: 18px; }
+  .chips, .mult { font-size: 20px; padding: 2px 8px; }
+  .tally-row { margin-top: 4px; }
+  .tally-total { min-height: 20px; margin-top: 2px; font-size: 18px; }
+  .counter { padding: 4px; }
+  .counter b { font-size: 17px; }
+  .felt { padding: 10px 8px; gap: 10px; }
+  .shelves { gap: 8px; }
+  .shelf header { margin-bottom: 4px; }
+  .tray { padding: 26px 12px 14px; }
+  .actions .btn { min-width: 120px; padding: 10px 14px 8px; font-size: 17px; }
+  .hint { display: none; }
+  .sheet-btn { display: inline; }
+  .combos { display: none; max-height: 48dvh; padding: 10px 12px; border-top: 2px solid var(--brass-dim); }
+  .combos.open { display: block; }
 }

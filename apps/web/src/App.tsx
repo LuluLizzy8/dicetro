@@ -48,6 +48,7 @@ export function App() {
   const [targetFaces, setTargetFaces] = useState<string[]>([]);
   const [pickedOption, setPickedOption] = useState<number | null>(null); // open pack option
   const [toast, setToast] = useState<string | null>(null);
+  const [sheet, setSheet] = useState(false); // phones: Combos + dice panel open
 
   useEffect(() => saveRun(run.phase === 'lost' ? null : run), [run]);
 
@@ -217,6 +218,7 @@ export function App() {
 
         <footer className="seed">
           <span>Seed <b>{run.seed}</b></span>
+          <button className="link sheet-btn" onClick={() => setSheet((v) => !v)}>{sheet ? 'Hide combos' : 'Combos & dice'}</button>
           <button className="link" onClick={restart}>New run</button>
         </footer>
       </aside>
@@ -313,10 +315,9 @@ export function App() {
           </>
         )}
 
-        <Inspector dice={run.dice} shown={run.shown} targeting={targeting} picked={targetFaces} onPick={pickFace} />
       </main>
 
-      <aside className="combos">
+      <aside className={`combos${sheet || targeting ? ' open' : ''}`}>
         <h2>Combos</h2>
         <ol>
           {COMBOS.map((c) => {
@@ -330,6 +331,7 @@ export function App() {
             );
           })}
         </ol>
+        <Inspector dice={run.dice} shown={run.shown} targeting={targeting} picked={targetFaces} onPick={pickFace} />
       </aside>
 
       {toast && <div className="toast" role="status">{toast}</div>}
