@@ -2,7 +2,7 @@
 
 A single-player roguelike dice game. You roll five dice Yahtzee-style, score them Balatro-style (chips × mult), and survive escalating blinds with Jokers, a shop, Tarots that reshape your dice, and boss blinds. Clear Ante 8 to win, then keep going in endless mode.
 
-Design doc: [`docs/DESIGN.md`](docs/DESIGN.md)
+Game design doc (GDD): [`docs/GDD.md`](docs/GDD.md)
 
 ## Play locally
 

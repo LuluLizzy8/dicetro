@@ -1,6 +1,40 @@
-# Dicetro — Design Doc
+# Dicetro — Game Design Document (Initial GDD)
 
-Status: draft v1 (2026-10-29). Decisions marked **[decided]** came from the design Q&A. Items in **Open questions** (end of doc) still need a call.
+Status: Initial GDD for Gate 1. Decisions marked **[decided]** came from the design Q&A. Items marked **[open]** still need a call and are listed in §19 Open questions.
+
+| Version | Date | Change |
+|---|---|---|
+| v1 | 2026-10-29 | Design doc: rules, content, engine (§1–§13) |
+| v2 | 2026-11-15 | Bet losses decided (§14.1); concepts considered (§0). Initial GDD: overview, player, pillars (§0), AI agent (§14), flow and UI (§15), art and audio (§16), onboarding (§17), production (§18), open questions (§19) |
+
+## 0. Overview
+
+**The X:** Roll, lock dice, reroll the rest, and play combos to beat rising score targets, feeling the rush of a broken build you made that breaks the game, while the Pit Boss tempts you with high-risk, high-reward quests.
+
+**Player and motivation:**
+- **For:** players who like short-session strategy and "one more run" games (Balatro, Slay the Spire, Luck be a Landlord), and casual Yahtzee players curious about roguelikes. Web first, then phone.
+- **Motivation:** mastery and discovery. The fun is finding a set of Jokers, stickers and carved dice that makes the numbers explode.
+- **Behavior a playtest should show if it works:**
+  - The player pauses before Score to compare a smaller combo with a bigger one.
+  - They edit a die on purpose to chase a build.
+  - They say "one more run" after losing.
+  - They read and weigh a Pit Boss side bet instead of dismissing it.
+
+**Pillars:**
+1. **Build your own deck.** Your deck is your dice, your combo upgrades (Loaded Weights) and your Jokers working together. Upgrades edit the dice themselves: faces, stickers and whole-die swaps.
+2. **Bend your luck.** Every roll is random, but your choices change the odds: locking dice, spending rerolls, editing faces and deciding whether to take a Pit Boss quest.
+3. **Break the house.** Builds are meant to snowball into absurd scores. Bosses and the Pit Boss push back without taking that away.
+4. **Short, replayable runs.** A run takes 30–45 minutes, is seeded and deterministic, and plays in a browser tab.
+
+**Other concepts considered:**
+
+| Concept | Why it lost |
+|---|---|
+| **Yahtzee scoring**: fill the 13 Yahtzee scorecard boxes, with upgrades between scorecards | A fixed scorecard caps build expression. Pillar 3 (break the house) needs repeatable, levelled combos. |
+| **Six dice with Guandan-style combos** (Two Triples, Three Pairs) | Simulated: a 6th die raises the average hand by about 50% and makes Ante 1 trivial (92% vs 60% clear). Kept as a G2 experiment (O8), not the baseline. |
+| **Auto-best scoring**: the game picks your best combo | It removes the main per-hand decision, and the Jokers that reward smaller combos would lose their purpose. |
+
+Dicetro won because it serves all four pillars and dice keep the asset scope small for a solo project.
 
 ## 1. Pitch
 
@@ -309,7 +343,7 @@ No Balatro code, art, names or text is copied. Mechanics are reimplemented from 
 | # | Question | Decision |
 |---|---|---|
 | Q1 | Hands / reroll pool per blind | 4 hands / 10 rerolls for now; can change |
-| Q2 | Is Parity too easy? | Yes, so it's worth "half a flush": Parity 20×2, Parity House 50×5 |
+| Q2 | Is Parity too easy? | Yes, so it's worth "half a flush": Parity 20×2, Parity House 45×4 (lowered from 50×5 after the sim) |
 | Q3 | Face value chips smaller than Balatro's | Fine; point values will be tuned |
 | Q4 | Minimum faces per die | 1 |
 | Q5 | Face values above 10? | No, cap at 10 |
@@ -320,3 +354,142 @@ No Balatro code, art, names or text is copied. Mechanics are reimplemented from 
 | Q10 | Ante 1 targets | 300 / 400 / 500 (tunable) |
 | Q11 | Chiselling breaks the game | Keep min 1; removal Tarots rare + expensive; 5K 100×10; The Spindle boss |
 | Q12 | Review fixes | Applied combo values, boss fixes, build fixes, engine architecture (§11.1), edge cases (§11.2) |
+
+## 14. AI agent: The Pit Boss **[open: proposal, needs confirmation]**
+
+The Pit Boss is the casino's floor manager. At the start of each blind he offers **one side bet** (a "Marker"), picked for this player and this run. The player accepts or declines. The game is complete without him, so he is an optional layer on top of the core loop.
+
+### 14.1 Offers
+
+| Type | Difficulty target | Win | Lose **[decided]** | Example |
+|---|---|---|---|---|
+| **Side Job** | ~50–70% success chance | $3–$8 | −$1 | "Score a Small Straight this blind. Pays $5." |
+| **High Stakes** | ~10–25% success chance | One powerful buff (list below) | −$5; can't accept with less than $5 | "Clear the Boss in 2 hands. Win a permanent extra hand." |
+
+Declining costs nothing. Losses come out of money at cash-out, so a failed bet can cost interest but can never end a run. The amounts are tunable.
+
+High Stakes buffs:
+- +1 hand per blind.
+- +3 rerolls per blind.
+- Level up every combo once.
+- One extra Joker slot.
+- Duplicate any face on any die.
+
+
+### 14.2 Bounded behavior
+
+The agent **chooses**:
+- one challenge template from a fixed catalog of about 15. Examples: score a given combo, score X in one hand, clear within N rerolls, play a parity-only hand, win without a named Joker.
+- the template's parameters, within allowed ranges.
+- the offer type: Side Job or High Stakes.
+- one line of in-character flavor text, at most 120 characters.
+
+The agent **cannot**:
+- change rules, targets, dice, RNG or prices.
+- set the reward amount. The engine prices it from the difficulty.
+- make more than one offer per blind.
+
+### 14.3 What the agent knows vs world state
+
+```
+World state (engine, authoritative)            Agent context (read-only snapshot)
+- RNG streams + seed            ── hidden ──X
+- future rolls, shop stock      ── hidden ──X
+- ante, blind, target, boss     ─────────────>  same
+- dice faces + stickers         ─────────────>  same
+- jokers, combo levels, money   ─────────────>  same
+- hands/rerolls this blind      ─────────────>  same
+- play history (combos played,  ─ summarized ─> top combos, accept/fail rate,
+  past bets and results)                         last 3 bets
+```
+
+### 14.4 Loop and validation
+
+1. **Request.** During cash-out and the shop for blind N, the game sends the snapshot to a server function. It calls the model, which returns structured JSON: `{template, params, kind, flavor}`.
+2. **Validation.** The engine checks the offer:
+   - The template exists and the parameters are in range.
+   - The sim bot plays about 200 rollouts of the next blind to estimate the success chance.
+   - The chance must fall inside the band for the offer type.
+   - The engine sets the reward from that chance.
+   - The flavor text passes a length check and a blocked-word filter.
+3. **Fallback.** On any failure, or if the call takes longer than 5 s, the game uses the scripted baseline offer. The player never waits.
+4. **Feedback.** The offer card sits on the blind card with a progress tracker. The payout shows on the cash-out screen, and the Pit Boss reacts with one line.
+
+### 14.5 Hypothesis
+
+- **Experience it affects:** "the house is reading me." Bets fit the player's build and habits, and they push the player to try a new line or take a calculated risk.
+- **Scripted baseline:** a random template from the same catalog, with random valid parameters, the same engine pricing and canned flavor text.
+- **Playtest question:** we show agent and scripted bets in random order across blinds. Do players accept more agent bets, and rate them higher on "this bet fit my run" (1–5)? Did a bet change a decision, such as a build choice, a reroll or the combo played?
+- **What the player loses with the scripted baseline:**
+  - Bets that ignore their build, such as a Parity bet when they built Pairs.
+  - Bets that never notice habits, such as always playing Pairs.
+  - Difficulty that ignores their skill.
+  - The sense that an opponent is watching them.
+
+### 14.6 Budgets
+
+| Item | Number | Basis |
+|---|---|---|
+| Model | Claude Haiku 5.5 | Cheapest current model; the task is a short structured output |
+| Calls per run | ~30 | 24 blinds (8 antes × 3), plus ~25% for retries and endless |
+| Tokens per call | ~2,500 in / ~600 out, including thinking | ~1,500 for the system prompt and catalog, ~1,000 for the state; the output is a small JSON object |
+| Cost per call | ~$0.00055 | $0.10 per million input tokens, $0.50 per million output tokens (Anthropic price list, Oct 2026) |
+| **Cost per session (1 run)** | **≈ $0.02, hard cap $0.05** | 30 × $0.00055. Sonnet 5.5 would cost ≈ $0.30 per run |
+| Player-visible latency | 0 ms target | The offer is prefetched during cash-out and the shop, which last at least 5 s |
+| Model latency | p95 ≤ 3 s; timeout 5 s, then the scripted offer | Estimate; measure in the first G2 spike |
+
+Cost control: the server function has a per-IP rate limit, and it makes no call when the player has turned the Pit Boss off.
+
+## 15. Game flow, screens and controls
+
+- **Flow:** Title (Continue / New run) → Blind (roll, reroll, score) → Cash-out → Shop (and Pack) → next Blind … → Win (Endless option) or Game over → Title.
+- **Main screen** (fits the window, no page scroll):
+  - Left rail: blind card, round score, live chips × mult, hands, rerolls, money, ante.
+  - Center felt: Jokers, items, dice tray, Play and Reroll.
+  - Right column: combo table and every face of every die.
+  - On phones, the right column opens as a bottom panel.
+- **Controls:**
+  - Tap a die, or press 1–5, to select it.
+  - Enter plays the selected dice; R rerolls them; Esc cancels.
+  - Tap a card to sell or move it.
+- **Pit Boss UI [open]:** an offer card with Accept / Decline, a progress line on the blind card, and his reaction on the cash-out screen.
+
+## 16. Art and audio direction
+
+- **Art:** a casino card table. Green felt with grain, brass trim, ivory cards and dice, red for mult and blue for chips. Fonts: Bowlby One for display, Martian Mono for numbers. Dice are flat SVG d10 kites. All art is original, with no Balatro art or trade dress.
+- **Audio [open]:** dice rattle and land, a chip clink on each scoring step, rising pitch as mult stacks, and a soft lounge loop. Sources are CC0 or original, credited in the README.
+
+## 17. Onboarding
+
+The first run uses normal rules. A one-line hint appears the first time each event happens: first roll, first reroll, first Joker, first Tarot, first boss. The hint line under the tray explains the controls. The Pit Boss stays off until the player clears their first boss, so the core loop is learned first.
+
+## 18. Production
+
+Gates, first tasks and owners are in `docs/PROJECT_PLAN.md`.
+
+**Planned v1 content:**
+- Rules engine.
+- Content: 21 Jokers, 12 Tarots, 11 Weights, 8 bosses.
+- Shop and packs.
+- Save/continue.
+- Sim bot for balance.
+- Automated tests and CI.
+
+**Cut first, in order:**
+1. Audio.
+2. Endless polish.
+3. High Stakes buffs: keep Side Jobs paying money only.
+4. Mobile layout polish.
+
+The Pit Boss and its scripted baseline are never cut, because the playtest question depends on both.
+
+## 19. Open questions
+
+| # | Question | Section |
+|---|---|---|
+| O1 | Confirm the Pit Boss design: one offer per blind, two offer types | §14 |
+| O3 | Final High Stakes buff list and how rare each buff is | §14.1 |
+| O5 | Balance: the sim's greedy bot wins 0% of runs and stalls at Antes 4–5. Add ×Mult Jokers? | §5, §8 |
+| O6 | Audio sources | §16 |
+| O7 | Agent server: Vercel Function with the API key kept server-side; rate-limit numbers | §14.6 |
+| O8 | Six-dice variant with Guandan-style combos (Two Triples, Three Pairs) and rescaled targets: run it in the sim at G2, adopt only if Ante 1 stays at a 60–80% clear rate | §0, §4.2 |
